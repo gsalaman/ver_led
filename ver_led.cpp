@@ -1,0 +1,274 @@
+/*====================================================
+ * VER_LED.CPP
+ * 
+ * This library uses the built-in LED on the main board to blink 
+ * a "version number".
+ * 
+ * Example:  if setup with version=3, the board will do three short blinks, 
+ *   followed by a pause, then repeat.
+ *   
+ * Notes:
+ *   Functionality implemented by a simple state machine.  ver_led_run is the main
+ *     processing function; it calls the appropriate sub-state functions.  Those
+ *     functions will check the current time compared to the time we entered that state to 
+ *     determine whether a state transition is needed.
+ *   Alternate implementations could use a timer and/or interrupts rather than this polled method.
+ *   
+ * Side Effects and Dependencies:
+ *   This function will take over the built in LED.
+ *   It's current implementation is polled, so any blocking calls outside of 
+ *     this implementation can delay the timing of the blinks.
+ */
+
+#include <Ver_LED.h>
+
+// States for our state machine
+typedef enum
+{
+  VER_LED_INIT,         // Uninitialized, waiting for configuration
+  VER_LED_ON,           // LED has been turned on, and we're waiting to turn it off.
+  VER_LED_SHORT_OFF,    // We just turned the LED off, and we've got more "blinks" before a long off.
+  VER_LED_LONG_OFF      // We just did our last blink, and we're pausing before doing the next sequence.
+} ver_led_state_type;
+
+static ver_led_state_type led_state;  // This is the current state of our state machine
+
+static int version=0;    // Version number corresponds to how many "quick blinks" in a row we'll do.
+
+// Blink time parameters.  Using variables instead of #defines here in case we want to change these
+//   on the fly in future implementations.
+static int led_on_time=500;           // Time in ms to keep the LED on for each blink
+static int led_short_off_time=500;    // Time in ms to between each quick blink
+static int led_long_off_time = 3000;  // Time in ms for the pause between blink sequences
+
+static int which_blink=0;   // keeps track of the number of blinks in a row we've done.  Used to determine
+                            // whether we're going to a short or long pause after a given blink.
+
+static unsigned long led_state_entry_time=0;  // keeps track of the timestamp when we entered our current state.
+
+/*====================================================================
+ * API Function:  ver_led_setup
+ * 
+ * Description:  used to set up operations...specifically setting the number of 
+ *   "blinks", and configuring the built-in LED for operation.
+ *   
+ * Parameters: 
+ *   version:  the number of consecutive blinks
+ *   
+ * Return value:
+ *   VER_LED_OKAY if our input version is in range.
+ *   VER_LED_ERROR if the input version is out of range.  Note that in this case, subsequent calls
+ *     to ver_led_run will do nothing.
+ */
+int ver_led_setup( int ver )
+{
+  
+  if ((ver < VER_LED_MIN_VERSION) || (ver > VER_LED_MAX_VERSION))
+  {
+    return(VER_LED_ERROR);
+  }
+
+  pinMode(LED_BUILTIN, OUTPUT);
+
+  version = ver;
+  
+  led_state = VER_LED_INIT;
+  
+} // ver_led_setup
+
+/*==================================================================
+ * State function:  init_state
+ * 
+ * Description:
+ *   In the init state, we turn on the LED and mark the "entry time"...which
+ *     currently represents when we turned ON the led.
+ *     
+ * Return Value:
+ *   We'll always go to the "ON" state after initing.
+ */
+ver_led_state_type init_state( void )
+{
+  // Turn on the LED, and mark the time.
+  digitalWrite(LED_BUILTIN, HIGH);   // turn the LED on (HIGH is the voltage level)
+  led_state_entry_time = millis();
+
+  // this is our first "blink"
+  which_blink = 1;
+  
+  return(VER_LED_ON);
+    
+}  // init_state
+
+/*===================================================================
+ * State function:  on_state
+ * 
+ * Description:
+ *   In the on state, we check to see if enough time has passed to turn off the LED.
+ *   
+ * Return Value:
+ *   If we still need to leave the LED on, stay in VER_LED_ON
+ *   If enough time has passed and we have more blinks, go to VER_LED_SHORT_OFF.
+ *   If enough time has passed and we are done with our sequence, go to VER_LED_LONG_OFF.
+ */
+ver_led_state_type on_state( void )
+{
+  unsigned long cur_time;
+  
+  //what time is it now?
+  cur_time = millis();
+
+  // has the LED been on long enough?
+  if (cur_time > led_state_entry_time + led_on_time)
+  {
+    // Turn off the LED and mark the time we turned off the LED.
+    digitalWrite(LED_BUILTIN, LOW);
+    led_state_entry_time = cur_time;
+    
+    // do we need a short off or a long off?
+    if (which_blink < version)
+    {
+      // Need more blinks.  Go to a short off.
+      which_blink++;  
+      return(VER_LED_SHORT_OFF);
+    }  // going to short off
+    else
+    {
+      // no more blinks.  Go to a long off.
+      which_blink = 0;
+      return(VER_LED_LONG_OFF);
+    }  // going to a long off
+  }  // have we been here long enough?
+  else
+  {
+    // Still have more time to wait.  Stay in this state.
+    return(VER_LED_ON);
+  }
+}  // on_state
+
+/*==========================================================
+ * State function:  short_off_state
+ * 
+ * Description:
+ *   This function implements a "quick pause" between blinks.
+ *  
+ * Return Value:
+ *   If we still have more time to wait in our "quick pause", stay in VER_LED_SHORT_OFF.
+ *   If enough time has passed, we need to turn on the LED and go to VER_LED_ON
+ */
+ver_led_state_type short_off_state( void )
+{
+  unsigned long cur_time;
+  
+  //what time is it now?
+  cur_time = millis();
+
+  // has the LED been off long enough?
+  if (cur_time > led_state_entry_time + led_short_off_time)
+  {
+    // Turn the LED back on, and mark the time we turned it on.
+    digitalWrite(LED_BUILTIN, HIGH);
+    led_state_entry_time = cur_time;
+
+    return (VER_LED_ON);
+  }
+  else
+  {
+    return (VER_LED_SHORT_OFF);
+  }
+}  // short_off_state
+
+/*========================================================================
+ * State Function: long_off_state
+ * 
+ * Description:  
+ *   This function implements the "long pause" between sequences.
+ *   
+ * Return Value:
+ *   If we have more time to wait before starting our next sequence, stay in VER_LED_LONG_OFF.
+ *   Otherwise, turn on the LED and go to VER_LED_ON
+ */
+ver_led_state_type long_off_state( void )
+{
+  unsigned long cur_time;
+  
+  //what time is it now?
+  cur_time = millis();
+
+  // has the LED been off long enough?
+  if (cur_time > led_state_entry_time + led_long_off_time)
+  {
+    // Turn on the LED, mark the time, and reset the sequence counter.
+    digitalWrite(LED_BUILTIN, HIGH);
+    which_blink = 1;
+    led_state_entry_time = cur_time;
+    return(VER_LED_ON);
+  }
+  else
+  {
+    return(VER_LED_LONG_OFF);
+  }
+  
+}  // long_off_state
+
+/*===========================================================
+ * API Function:  ver_led_run
+ * 
+ * Description:  
+ *   This is the driver function for the state machine.  
+ *   It's currently impelmented as a polled time mechanism, so it 
+ *   needs to be called periodically.
+ *   
+ *  High level flow:
+ *    VER_LED_INIT sets up the configuration.  Turn on the LED, mark the entry time, 
+ *      and go to the VER_LED_ON state.
+ *      
+ *    In the VER_LED_ON state, we check to see how much time has passed.  If we've
+ *      left the LED on long enough, we see how many consecutive blinks have happened, to 
+ *      determine whether to go to a "short off" (if there are more blinks left) or a "long off"
+ *      (if we've done a full sequence and need a long pause before the next sequence).
+ *    
+ *    VER_LED_SHORT_OFF checks time to see if our "quick pause" time is done.  If so, we'll turn the LED 
+ *      back on and go to the VER_LED_ON state.  If not, we'll stay here.
+ *      
+ *    VER_LED_LONG_OFF checks time to see if our "long pause" time is done.  If so, we'll reset our 
+ *      count for how many "blinks" we've done, mark the entry time, and turn the LED back on (going to
+ *      VER_LED_ON).  If we still need to pause, we'll stay in this state.
+ */
+void ver_led_run( void )
+{
+
+  ver_led_state_type        next_state; 
+  
+  switch (led_state)
+  {
+    case VER_LED_INIT:
+      next_state = init_state();
+    break;
+
+    case VER_LED_ON:
+      next_state = on_state();
+    break;
+
+    case VER_LED_SHORT_OFF:
+      next_state = short_off_state();
+    break;
+
+    case VER_LED_LONG_OFF:
+      next_state = long_off_state();
+    break;
+
+    // default:
+      // no error handling.  Probably need something here...
+    
+  }  // end of switch on led state
+
+#ifdef DEBUG_SERIAL
+  Serial.print("Current State: ");
+  Serial.print(led_state_strings[led_state]);
+  Serial.print(" Next State: ");
+  Serial.print(led_state_strings[next_state]);
+  Serial.println();
+#endif
+
+  led_state = next_state;
+}  // ver_led_run
