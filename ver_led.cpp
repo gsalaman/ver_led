@@ -20,7 +20,7 @@
  *     this implementation can delay the timing of the blinks.
  */
 
-#include <Ver_LED.h>
+#include <ver_led.h>
 
 // States for our state machine
 typedef enum
@@ -233,6 +233,7 @@ ver_led_state_type long_off_state( void )
  *    VER_LED_LONG_OFF checks time to see if our "long pause" time is done.  If so, we'll reset our 
  *      count for how many "blinks" we've done, mark the entry time, and turn the LED back on (going to
  *      VER_LED_ON).  If we still need to pause, we'll stay in this state.
+ *
  */
 void ver_led_run( void )
 {
