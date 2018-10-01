@@ -22,6 +22,8 @@
 
 #include <ver_led.h>
 
+//#define DEBUG_SERIAL
+
 // States for our state machine
 typedef enum
 {
@@ -30,6 +32,16 @@ typedef enum
   VER_LED_SHORT_OFF,    // We just turned the LED off, and we've got more "blinks" before a long off.
   VER_LED_LONG_OFF      // We just did our last blink, and we're pausing before doing the next sequence.
 } ver_led_state_type;
+
+#ifdef DEBUG_SERIAL
+char *led_state_strings[] =
+{
+  "VER_LED_INIT",
+  "VER_LED_ON",
+  "VER_LED_SHORT_OFF",
+  "VER_LED_LONG_OFF"
+};
+#endif
 
 static ver_led_state_type led_state;  // This is the current state of our state machine
 
@@ -62,6 +74,10 @@ static unsigned long led_state_entry_time=0;  // keeps track of the timestamp wh
  */
 int ver_led_setup( int ver )
 {
+
+#ifdef DEBUG_SERIAL
+  Serial.begin(9600);
+#endif
   
   if ((ver < VER_LED_MIN_VERSION) || (ver > VER_LED_MAX_VERSION))
   {
@@ -88,6 +104,14 @@ int ver_led_setup( int ver )
  */
 ver_led_state_type init_state( void )
 {
+  // catch the case where we haven't called ver_led_setup without a valid parameter
+  if (version == 0)
+  {
+    // stay in init, hopeful that someone, someday will call ver_led_setup with the 
+    // correct parameters.
+    return(VER_LED_INIT);
+  }
+
   // Turn on the LED, and mark the time.
   digitalWrite(LED_BUILTIN, HIGH);   // turn the LED on (HIGH is the voltage level)
   led_state_entry_time = millis();
