@@ -18,6 +18,9 @@
  *   This function will take over the built in LED.
  *   It's current implementation is polled, so any blocking calls outside of 
  *     this implementation can delay the timing of the blinks.
+ *
+ *  NOTE:  in progress:  converting to a timer-based system, where we still use "millis" 
+ *    to mark time, but we tick the state machine with a timer interrupt.
  */
 
 #include <ver_led.h>
@@ -59,6 +62,33 @@ static int which_blink=0;   // keeps track of the number of blinks in a row we'v
 static unsigned long led_state_entry_time=0;  // keeps track of the timestamp when we entered our current state.
 
 /*====================================================================
+ * Function header block goes here...
+ *
+ */
+void init_tick_timer( void )
+{
+  // current iteration:  tick every 10 ms.
+  //    Math:  10ms period = 100 Hz.
+  //           use prescaler of 256.
+  //           compare match register:  16 MHz/256/100 = 625.
+  int compare_match_reg=625;
+
+  // initialize timer1 
+  noInterrupts();           // disable all interrupts
+  TCCR1A = 0;
+  TCCR1B = 0;
+  TCNT1  = 0;
+  OCR1A = compare_match_reg;// compare match register 
+  TCCR1B |= (1 << WGM12);   // CTC mode
+  TCCR1B |= (B00000100);    // 256 prescaler 
+  TIMSK1 |= (1 << OCIE1A);  // enable timer compare interrupt
+  interrupts();             // enable all interrupts  
+
+}
+
+
+
+/*====================================================================
  * API Function:  ver_led_setup
  * 
  * Description:  used to set up operations...specifically setting the number of 
@@ -90,6 +120,8 @@ int ver_led_setup( int ver )
   
   led_state = VER_LED_INIT;
   
+  init_tick_timer();
+
 } // ver_led_setup
 
 /*==================================================================
@@ -235,7 +267,7 @@ ver_led_state_type long_off_state( void )
 }  // long_off_state
 
 /*===========================================================
- * API Function:  ver_led_run
+ * DRIVER Function:  state_machine_driver
  * 
  * Description:  
  *   This is the driver function for the state machine.  
@@ -259,7 +291,7 @@ ver_led_state_type long_off_state( void )
  *      VER_LED_ON).  If we still need to pause, we'll stay in this state.
  *
  */
-void ver_led_run( void )
+static void state_machine_driver( void )
 {
 
   ver_led_state_type        next_state; 
@@ -296,4 +328,14 @@ void ver_led_run( void )
 #endif
 
   led_state = next_state;
-}  // ver_led_run
+}  // state_machine_driver
+
+/*====================================================================
+ * Time tick ISR
+ *
+ */
+ISR(TIMER1_COMPA_vect)
+{
+  // every 10ms, tick over the state machine.
+  state_machine_driver();
+}
