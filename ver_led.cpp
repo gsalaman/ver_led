@@ -8,19 +8,18 @@
  *   followed by a pause, then repeat.
  *   
  * Notes:
- *   Functionality implemented by a simple state machine.  ver_led_run is the main
- *     processing function; it calls the appropriate sub-state functions.  Those
- *     functions will check the current time compared to the time we entered that state to 
- *     determine whether a state transition is needed.
- *   Alternate implementations could use a timer and/or interrupts rather than this polled method.
+ *   Functionality implemented by a simple state machine.  state_machine_driver is the main
+ *   processing function; it calls the appropriate sub-state functions.  Those
+ *   functions will check the current time compared to the time we entered that state to 
+ *   determine whether a state transition is needed.
+ *  
+ *   The state machine driver is now triggered via a 10ms periodic timer and
+ *   runs in interrupt space.  
  *   
  * Side Effects and Dependencies:
  *   This function will take over the built in LED.
- *   It's current implementation is polled, so any blocking calls outside of 
- *     this implementation can delay the timing of the blinks.
- *
- *  NOTE:  in progress:  converting to a timer-based system, where we still use "millis" 
- *    to mark time, but we tick the state machine with a timer interrupt.
+ *   We use the arduino's TIMER1 in order to process the state machine.
+
  */
 
 #include <ver_led.h>
@@ -62,10 +61,14 @@ static int which_blink=0;   // keeps track of the number of blinks in a row we'v
 static unsigned long led_state_entry_time=0;  // keeps track of the timestamp when we entered our current state.
 
 /*====================================================================
- * Function header block goes here...
+ * INTERNAL function init_tick_timer
  *
+ * Description:  
+ *   This function is responsible for setting up the tick timer we use
+ *   to push the state machine forward.  Note the tick is currently 
+ *   hard-coded to 10ms.
  */
-void init_tick_timer( void )
+static void init_tick_timer( void )
 {
   // current iteration:  tick every 10 ms.
   //    Math:  10ms period = 100 Hz.
@@ -84,8 +87,7 @@ void init_tick_timer( void )
   TIMSK1 |= (1 << OCIE1A);  // enable timer compare interrupt
   interrupts();             // enable all interrupts  
 
-}
-
+}  // init_tick_timer
 
 
 /*====================================================================
@@ -120,6 +122,7 @@ int ver_led_setup( int ver )
   
   led_state = VER_LED_INIT;
   
+  // initialize our tick timing for the state machine.
   init_tick_timer();
 
 } // ver_led_setup
@@ -193,6 +196,7 @@ ver_led_state_type on_state( void )
       which_blink = 0;
       return(VER_LED_LONG_OFF);
     }  // going to a long off
+
   }  // have we been here long enough?
   else
   {
@@ -271,8 +275,8 @@ ver_led_state_type long_off_state( void )
  * 
  * Description:  
  *   This is the driver function for the state machine.  
- *   It's currently impelmented as a polled time mechanism, so it 
- *   needs to be called periodically.
+ *   It's currenly triggered by Timer1's compare ISR, and thus all of this
+ *     code currenly runs in interrupt space.
  *   
  *  High level flow:
  *    VER_LED_INIT sets up the configuration.  Turn on the LED, mark the entry time, 
@@ -333,6 +337,8 @@ static void state_machine_driver( void )
 /*====================================================================
  * Time tick ISR
  *
+ * This is the interrupt service routine that the arduino calls whenever our
+ * 10ms timer expires.  Currenly we just run the state machine driver.
  */
 ISR(TIMER1_COMPA_vect)
 {
