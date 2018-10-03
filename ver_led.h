@@ -12,12 +12,10 @@
  * 
  * To use:  
  *   - Call ver_led_setup with the version number (or number of "blinks")
- *   - Periodically call ver_led_run in order to "tick" the processing forward.
  *   
  * Side Effects and Dependencies:
  *   This function will take over the built in LED.
- *   It's current implementation is polled, so any blocking calls outside of 
- *     this implementation can delay the timing of the blinks.
+ *   Current implementation uses the TIMER1 ISR to tick it's internal state machine
  */
 #include <Arduino.h>
 
@@ -46,15 +44,5 @@
  *     to ver_led_run will do nothing.
  */
 extern int ver_led_setup( int version );
-
-/*===========================================================
- * API Function:  ver_led_run
- * 
- * Description:  
- *   This is the driver function for the state machine.  
- *   It's currently impelmented as a polled time mechanism, so it 
- *   needs to be called periodically. 
- */
-extern void ver_led_run( void );
 
 #endif  // VER_LED_H
