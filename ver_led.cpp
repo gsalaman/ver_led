@@ -24,7 +24,13 @@
 
 #include <ver_led.h>
 
-//#define DEBUG_SERIAL
+// In this implementation, DEBUG_SERIAL causes serial prints from ISR
+// space, which causes bad things to happen.  Keeping the code in here 
+// for future implementations (a task-based timer callback version is in
+// the works), but don't let users turn it on.
+#if defined(DEBUG_SERIAL)
+#error "DEBUG_SERIAL not supported in this version"
+#endif
 
 // States for our state machine
 typedef enum
